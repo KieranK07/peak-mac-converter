@@ -1,26 +1,28 @@
 #!/usr/bin/env python3
-"""steam_library.py: make PEAK in Steam's library start the converted Mac app, as the real game (app 3527290).
+"""steam_library.py: make Steam install PEAK (app 3527290) on this Mac and start the converted app from its Play button.
 
-    python3 -I scripts/steam_library.py --app <PEAK.app> [--game <Windows game dir>] [--check]
+    python3 -I scripts/steam_library.py --app <PEAK.app> [--game <copied Windows install>] [--check]
     python3 -I scripts/steam_library.py --check-play    # exit 0 if Steam's app cache still offers Play on macOS
 
 PEAK calls SteamAPI.RestartAppIfNecessary(3527290) at startup: a process Steam didn't start as app 3527290 quits
 and asks Steam to run 3527290. So the Mac app is started by Steam's own PEAK entry, as in the Lethal converter
 (its steam_appinfo.py + steam_launch.py; see its README):
-1. appcache/appinfo.vdf: add `macos` to PEAK's common/oslist and to the oslist of its first Windows launch entry
-   ("PEAK using DX12"). Every PEAK launch entry is Windows-only, so without both Steam shows "not available".
-2. steamapps/: PEAK is registered as installed: its SteamCMD appmanifest_3527290.acf with the depots removed, and a
-   stub common/<installdir> holding an empty PEAK.exe (never the game: Steam would delete the Windows depot's files).
+1. appcache/appinfo.vdf: add `macos` to PEAK's common/oslist, to the oslist of its first Windows launch entry
+   ("PEAK using DX12") and to its depot's (3527291). Without the first two Steam shows "not available". Without the
+   depot's, Steam on macOS "reconfigures" an install ("removed depots 3527291") and deletes the game's files.
+2. steamapps/appmanifest_3527290.acf: if PEAK has no install record, a minimal one asking for an install, as Steam
+   writes when you hit Install. Steam then downloads the Windows depot into steamapps/common/PEAK with your own
+   session (convert.sh starts it with steam://validate/3527290 and waits).
 3. userdata/<id>/config/localconfig.vdf: PEAK's launch options become `"<app binary>" %command%`, so Steam runs the
    bundle's binary (Unity ignores the PEAK.exe path %command% expands to).
 Steam checks the licence, starts the binary as 3527290 (SteamAppId in its environment) and injects the overlay:
 RestartAppIfNecessary returns false, SteamAPI_Init connects as PEAK, playtime/presence/invites are the real game's.
 A launch from Finder is handed to Steam by RestartAppIfNecessary and ends up the same way.
 
-A copied install (--game without steamapps/appmanifest_3527290.acf) can't be registered. It gets a non-Steam
-shortcut instead: Exe = the bundle's binary, launch options `SteamAppId=3527290 %command%` (so RestartAppIfNecessary
-returns false; SteamAPI_Init still needs the account to own PEAK) and PEAK's artwork from
-appcache/librarycache/3527290. The overlay may not survive there (Lethal: Steam re-associates the process).
+A copied install (--game) gets a non-Steam shortcut instead: Exe = the bundle's binary, launch options
+`SteamAppId=3527290 %command%` (so RestartAppIfNecessary returns false; SteamAPI_Init still needs the account to own
+PEAK) and PEAK's artwork from appcache/librarycache/3527290. The overlay may not survive there (Lethal: Steam
+re-associates the process).
 
 Steam must be closed: it rewrites these files from memory on exit. Edited files are backed up as .bak (appinfo.vdf
 once, as appinfo.vdf.pmc-bak). PMC_STEAM_DIR points it at another Steam folder (tests); the "Steam is running"
@@ -28,7 +30,7 @@ guard is only for the real one. Exit codes: 0 done/ok, 1 --check: not set up yet
 """
 import argparse, binascii, glob, hashlib, os, re, shutil, struct, subprocess, sys
 
-APPID, NAME = 3527290, 'PEAK'
+APPID, DEPOT, NAME = 3527290, 3527291, 'PEAK'
 REAL = os.path.expanduser('~/Library/Application Support/Steam')
 STEAM = os.environ.get('PMC_STEAM_DIR') or REAL
 SHORTCUT_OPTIONS = f'SteamAppId={APPID} %command%'
@@ -140,14 +142,16 @@ def load_appinfo():
 
 
 def play_oslists(items):
-    """The two oslist values that decide Play on macOS: common/oslist and the first Windows launch entry's."""
+    """The oslist values that decide Play and installing on macOS: common/oslist, the first Windows launch entry's
+    and the depot's (a Windows-only depot is removed from a Mac install, files and all)."""
     common, launch = find(items, 'appinfo', 'common', 'oslist'), find(items, 'appinfo', 'config', 'launch')
     if not common or not launch:
         die("no common/oslist or config/launch in PEAK's app info")
+    depot = find(items, 'appinfo', 'depots', str(DEPOT), 'config', 'oslist')
     for t, _, entry in launch[1][2]:
         hit = find(entry, 'config', 'oslist') if t == 0 else None
         if hit and 'windows' in hit[1][2].decode().split(',') and not find(entry, 'config', 'BetaKey'):
-            return [common, hit]
+            return [common, hit] + ([depot] if depot else [])
     die('PEAK has no Windows launch entry')
 
 
@@ -179,54 +183,16 @@ def enable_play():
     print('Steam now offers Play on PEAK on macOS')
 
 
-# --- 2. steamapps/: the SteamCMD install, registered as installed --------------------------------------------------
-def manifest_src(game):
-    return os.path.join(game, f'steamapps/appmanifest_{APPID}.acf')
+# --- 2. steamapps/appmanifest_3527290.acf: Steam's install record ---------------------------------------------
+MANIFEST = os.path.join(STEAM, f'steamapps/appmanifest_{APPID}.acf')
 
 
-def manifest_text(game):
-    return open(manifest_src(game), encoding='utf-8').read().replace(
-        '"FullValidateAfterNextUpdate"\t\t"1"', '"FullValidateAfterNextUpdate"\t\t"0"')
-
-
-def install_link(text):
-    m = re.search(r'"installdir"\s+"([^"]+)"', text)
-    if not m or '/' in m.group(1):
-        die('appmanifest has no usable installdir')
-    return os.path.join(STEAM, 'steamapps/common', m.group(1))
-
-
-# Steam's install dir is a stub, never the game: PEAK's only depot (3527291) is oslist "windows", so Steam on macOS
-# "reconfigures" an install that lists it ("removed depots 3527291") and deletes its files, through a symlink too
-# (seen 2026-10-07). The stub manifest lists no depots, as Steam itself rewrites it, and common/PEAK holds only an
-# empty PEAK.exe: Steam checks that the launch entry's exe exists, then runs our launch options instead.
-STUB_EXE, STUB_MARK = 'PEAK.exe', '.peak-mac-converter'
-
-
-def stub_manifest(game):
-    text = re.sub(r'("InstalledDepots"\n\t\{\n).*?(\n\t\})', r'\1\2', manifest_text(game), flags=re.S)
-    return re.sub(r'"SizeOnDisk"\t\t"\d+"', '"SizeOnDisk"\t\t"0"', text).replace('\t{\n\n\t}', '\t{\n\t}')
-
-
-def registered(game):
-    text, manifest = stub_manifest(game), os.path.join(STEAM, f'steamapps/appmanifest_{APPID}.acf')
-    stub = install_link(text)
-    return (not os.path.islink(stub) and os.path.isfile(os.path.join(stub, STUB_MARK))
-            and os.path.isfile(os.path.join(stub, STUB_EXE)) and os.path.isfile(manifest)
-            and open(manifest, encoding='utf-8').read() == text)
-
-
-def register(game):
-    text = stub_manifest(game)
-    stub = install_link(text)
-    if os.path.islink(stub):  # the old layout linked the real game here, which Steam then emptied
-        os.remove(stub)
-    elif os.path.lexists(stub) and not os.path.isfile(os.path.join(stub, STUB_MARK)):
-        die(f'{stub} exists and is not our stub; not touching it')
-    os.makedirs(stub, exist_ok=True)
-    for name in (STUB_EXE, STUB_MARK):
-        open(os.path.join(stub, name), 'a').close()
-    backup_write(os.path.join(STEAM, f'steamapps/appmanifest_{APPID}.acf'), text)
+def request_install():
+    """Install requested (StateFlags 1026: update required + started); Steam fills in the rest as it downloads."""
+    if not os.path.exists(MANIFEST):
+        backup_write(MANIFEST, dump([('AppState', [('appid', str(APPID)), ('Universe', '1'), ('name', NAME),
+                                                   ('StateFlags', '1026'), ('installdir', NAME)])]))
+        print('Steam will install PEAK when it opens')
 
 
 # --- 3. localconfig.vdf (text VDF): PEAK's launch options --------------------------------------------------------
@@ -405,8 +371,7 @@ def remove_shortcut(vdf, app):
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split('\n')[0])
     ap.add_argument('--app', help='the converted PEAK.app')
-    ap.add_argument('--game', help='the Windows game dir; with steamapps/appmanifest_3527290.acf (SteamCMD) it '
-                                   'becomes the real PEAK entry, otherwise a shortcut')
+    ap.add_argument('--game', help="a copied Windows install: gets a non-Steam shortcut (default: Steam's own install)")
     ap.add_argument('--check', action='store_true', help='exit 0 if already set up, 1 if not (changes nothing)')
     ap.add_argument('--check-play', action='store_true', help="exit 0 if Steam's app cache offers Play on macOS")
     a = ap.parse_args()
@@ -417,15 +382,15 @@ def main():
     app = os.path.abspath(a.app.rstrip('/'))
     if not app.endswith('.app') or '"' in app or '\\' in app:
         die(f'{app}: need a .app path without quotes or backslashes')
-    # numeric folders only: SteamCMD's anonymous logins leave a userdata/anonymous behind
+    # numeric folders only: an old SteamCMD anonymous login leaves a userdata/anonymous behind
     accounts = [c for c in glob.glob(os.path.join(STEAM, 'userdata/*/config')) if os.path.basename(os.path.dirname(c)).isdigit()]
     if not accounts:
         die('no Steam account on this Mac: sign in to Steam once first')
     configs = [c for c in (os.path.join(d, 'localconfig.vdf') for d in accounts) if os.path.isfile(c)]
     vdfs = [os.path.join(d, 'shortcuts.vdf') for d in accounts]
-    real, want = bool(a.game) and os.path.isfile(manifest_src(a.game)), launch_options(app)
+    real, want = not a.game, launch_options(app)
     if real:
-        done = (play_ok() and registered(a.game) and configs and all(launch_set(c, want) for c in configs)
+        done = (play_ok() and os.path.isfile(MANIFEST) and configs and all(launch_set(c, want) for c in configs)
                 and not any(ours(v, app) for f in vdfs for v in shortcuts(f).values()))
     else:
         done = all(has_shortcut(f, app) for f in vdfs)
@@ -435,7 +400,7 @@ def main():
         die('quit Steam first (it rewrites its library files when it exits)')
     if real:
         enable_play()
-        register(a.game)
+        request_install()
         for c in configs:
             set_launch(c, want)
         for f in vdfs:

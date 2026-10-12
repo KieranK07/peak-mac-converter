@@ -2,13 +2,12 @@
 # Turn your own Windows copy of PEAK into a native Apple Silicon app.
 #
 #   double-click "Convert PEAK.command", or ./convert.sh with no options: the Steam app you're signed into
-#     downloads your copy (you paste one command into Steam's console). It never asks for your password.
-#   ./convert.sh --game "/path/to/PEAK"            # use an existing Windows install instead
-#   ./convert.sh --steam-user <your Steam login name>    # download with Valve's SteamCMD and your login instead
-#   options: --out "<path>.app" (default ~/Applications/PEAK.app), --no-steam-entry,
+#     installs PEAK like any game, with your own session. It never asks for your password.
+#   ./convert.sh --game "/path/to/PEAK"            # use a copied Windows install instead (gets a Steam shortcut)
+#   options: --out "<path>.app" (default ~/Applications/PEAK.app), --no-steam-entry (with --game),
 #            --force (rebuild even if the app is up to date), --no-update-check
 #
-# Updating: run it again after PEAK updates. It downloads the new build, and the app is rebuilt only when
+# Updating: run it again after PEAK updates. Steam gets the new build, and the app is rebuilt only when
 # the game or this converter changed; otherwise it says the app is up to date. Saves and settings live outside the
 # app (~/Library/Application Support/com.LandCrab.PEAK, ~/Library/Preferences/com.LandCrab.PEAK.plist).
 #
@@ -25,11 +24,10 @@ APPID=3527290 DEPOT_ID=3527291
 UNITY_VERSION=6000.3.15f1
 STAMP_ATTR=com.peak-mac-converter.stamp  # extended attribute on the app: outside the code signature
 OUT_APP="$HOME/Applications/PEAK.app"
-GAME= STEAM_USER= STEAM_ENTRY=1 FORCE= UPDATE_CHECK=1
+GAME= STEAM_INSTALL= STEAM_ENTRY=1 FORCE= UPDATE_CHECK=1
 while [ $# -gt 0 ]; do
   case $1 in
     --game) GAME=$2; shift 2 ;;
-    --steam-user) STEAM_USER=$2; shift 2 ;;
     --out) OUT_APP=$2; shift 2 ;;
     --no-steam-entry) STEAM_ENTRY=; shift ;;
     --force) FORCE=1; shift ;;
@@ -42,54 +40,38 @@ case $OUT_APP in *.app) ;; *) echo "error: --out must end in .app" >&2; exit 2 ;
 say() { printf '\n==> %s\n' "$*"; }
 die() { printf 'error: %s\n' "$*" >&2; exit 1; }
 mkdir -p "$PMC_CACHE"
-need_steamcmd() {  # Valve's SteamCMD for macOS, an Intel binary (Rosetta)
-  arch -x86_64 /usr/bin/true 2>/dev/null || die "SteamCMD needs Rosetta: softwareupdate --install-rosetta --agree-to-license"
-  if [ ! -x "$PMC_CACHE/steamcmd/steamcmd.sh" ]; then
-    say "Downloading Valve's SteamCMD"
-    mkdir -p "$PMC_CACHE/steamcmd"
-    curl -fsSL https://steamcdn-a.akamaihd.net/client/installer/steamcmd_osx.tar.gz | tar -xz -C "$PMC_CACHE/steamcmd"
-  fi
-}
 # Hash of the files under these paths (build outputs and tests left out): decides what needs rebuilding.
 srchash() {
   (cd "$HERE" && find "$@" -type f ! -path '*/out/*' ! -path '*/bin/*' ! -path '*/obj/*' ! -path '*/test/*' \
     ! -name '*.pyc' ! -name '.DS_Store' -print0 | sort -z | xargs -0 shasum) | shasum | cut -c1-16
 }
-# SteamCMD with its own home folder: sharing the Steam app's, its saved login was wiped whenever Steam started.
-# And with a no-op launchctl: otherwise every run swaps the Steam app's com.valvesoftware.steamclean job in your
-# session for SteamCMD's own copy (seen 2026-10-07; SteamCMD finds launchctl through PATH).
-steamcmd() {
-  mkdir -p "$PMC_CACHE/steamcmd-home" "$PMC_CACHE/steamcmd-bin"
-  printf '#!/bin/sh\nexit 0\n' > "$PMC_CACHE/steamcmd-bin/launchctl" && chmod +x "$PMC_CACHE/steamcmd-bin/launchctl"
-  PATH="$PMC_CACHE/steamcmd-bin:$PATH" HOME="$PMC_CACHE/steamcmd-home" "$PMC_CACHE/steamcmd/steamcmd.sh" "$@"
-}
-latest_build() {  # the public build id, asked anonymously (no login, so the Steam app isn't signed out)
-  steamcmd +login anonymous +app_info_update 1 +app_info_print $APPID +quit 2>/dev/null |
-    awk '/"branches"/ {b=1} b && /"public"/ {p=1} p && /"buildid"/ {gsub(/"/, "", $2); print $2; exit}'
-}
-# Steam keeps its library files in memory and writes them back on exit, so it must be closed while we edit them;
-# and SteamCMD signing in as you signs the Steam app out. Close it once; reopen it on exit. Never with PMC_STEAM_DIR.
+# Steam keeps its library files in memory and writes them back on exit, so it must be closed while we edit them.
+# Close it once; reopen it on exit. Never with PMC_STEAM_DIR.
 close_steam() {  # $1: why
   [ -z "${PMC_STEAM_DIR:-}" ] && pgrep -x steam_osx >/dev/null || return 0
-  say "Closing Steam for a moment ($1); it reopens at the end"
+  say "Closing Steam for a moment ($1); it opens again by itself"
   osascript -e 'quit app "Steam"' >/dev/null 2>&1 || true
   for _ in $(seq 60); do pgrep -x steam_osx >/dev/null || break; sleep 1; done
   pgrep -x steam_osx >/dev/null && die "Steam didn't quit; quit it yourself and run this again"
   trap 'open -a Steam' EXIT
 }
-# Steam's own PEAK entry plays this app, as app 3527290 (scripts/steam_library.py says how and why). A copied
-# install (--game without SteamCMD's appmanifest) gets a separate shortcut instead.
-add_steam_entry() {
-  [ -n "$STEAM_ENTRY" ] && [ -d "$STEAM_DIR/userdata" ] || return 0
-  rc=0; python3 -I "$HERE/scripts/steam_library.py" --app "$OUT_APP" --game "$GAME" --check || rc=$?
-  case $rc in 0) return 0 ;; 1) ;; *) echo "(skipped the Steam library entry; see the message above)"; return 0 ;; esac
-  close_steam "to make Play on PEAK in your Steam library start the Mac app"
-  python3 -I "$HERE/scripts/steam_library.py" --app "$OUT_APP" --game "$GAME" || echo "(could not set up the Steam library entry)"
+# Steam's own PEAK entry: installable and playable on macOS, Play starts this app (scripts/steam_library.py says how
+# and why). A copied install (--game) gets a separate shortcut instead. $1: what to do when that fails (die, skip).
+steam_entry() {
+  WHAT=$1
+  [ -d "$STEAM_DIR/userdata" ] || { $WHAT "no Steam on this Mac: install Steam and sign in once"; return 0; }
+  set -- --app "$OUT_APP"
+  [ -n "$STEAM_INSTALL" ] || set -- "$@" --game "$GAME"
+  rc=0; python3 -I "$HERE/scripts/steam_library.py" "$@" --check || rc=$?
+  case $rc in 0) return 0 ;; 1) ;; *) $WHAT "couldn't set up PEAK in Steam (see the message above)"; return 0 ;; esac
+  close_steam "to set up PEAK for macOS in your Steam library"
+  python3 -I "$HERE/scripts/steam_library.py" "$@" || $WHAT "couldn't set up PEAK in Steam (see the message above)"
 }
+skip() { echo "(skipped the Steam library entry: $*)"; }
+add_steam_entry() { [ -z "$STEAM_ENTRY" ] || steam_entry skip; }
 # A LaunchAgent that checks Steam once a day (and at login) and notifies when the game has updated.
 install_update_check() {
   [ -n "$UPDATE_CHECK" ] || return 0
-  ( need_steamcmd ) || { echo "(skipping the daily update check: no SteamCMD)"; return 0; }
   cp "$HERE/scripts/update_check.sh" "$HERE/scripts/steam_library.py" "$PMC_CACHE/"
   PL="$HOME/Library/LaunchAgents/com.peak-mac-converter.update-check.plist"
   mkdir -p "$HOME/Library/LaunchAgents"
@@ -139,71 +121,32 @@ up_to_date() {
   install_update_check
   exit 0
 }
-ACF_NAME=steamapps/appmanifest_$APPID.acf
-STEAM_APP="${PMC_STEAM_DIR:-$HOME/Library/Application Support/Steam}"
-# By default the Steam app you're signed into downloads the files, with its own download_depot console command
-# that you paste. It uses your existing Steam session and licence, so the converter never sees your password.
-# Known limit: it downloads the whole depot (about 1.6 GB) on every game update.
-steam_download() {  # $1: the public build id being downloaded
-  CMD="download_depot $APPID $DEPOT_ID"
-  pgrep -x steam_osx >/dev/null || { open -a Steam; say "Opening Steam (sign in if it asks)"; sleep 10; }
-  START=$(date '+%Y-%m-%d %H:%M:%S')
-  printf '%s' "$CMD" | pbcopy
-  open "steam://open/console"
-  say "Steam's console just opened. Paste there (Cmd+V) and press Return:  $CMD"
-  echo "    It's already on your clipboard. Steam then downloads your copy (about 1.6 GB) and this window waits."
-  echo "    No console? Copy the line above, open steam://open/console in Safari and allow it to open Steam."
-  WAITED=0
-  while :; do  # Steam logs "Depot download complete : "<folder>" (manifest <id>)", or "Depot download failed : …"
-    LOG=$(cat "$STEAM_APP/logs/content_log.txt" "$STEAM_APP/logs/console_log.txt" 2>/dev/null |
-      awk -v t="$START" '/Depot download (complete|failed)/ && substr($0, 2, 19) >= t')
-    DONE=$(printf '%s\n' "$LOG" | grep 'complete' | grep "app_$APPID.depot_$DEPOT_ID" | tail -1 || true)
-    [ -n "$DONE" ] && break
-    FAILED=$(printf '%s\n' "$LOG" | grep 'failed' | tail -1 || true)
-    [ -z "$FAILED" ] || die "Steam couldn't download PEAK: ${FAILED#*failed : }. Is PEAK on the Steam account that's signed in?"
-    [ "$WAITED" -lt 2400 ] || die "nothing from Steam after 40 min. Check you pasted the line into Steam's console and pressed Return, then run this again"
+STEAM_GAME="$STEAM_DIR/steamapps/common/PEAK" ACF="$STEAM_DIR/steamapps/appmanifest_$APPID.acf"
+acf() { sed -n 's/.*"'"$1"'"[[:space:]]*"\([0-9]*\)".*/\1/p' "$ACF" 2>/dev/null | head -1; }
+installed() { [ "$(acf StateFlags)" = 4 ] && grep -q "\"$DEPOT_ID\"" "$ACF" && [ -f "$STEAM_GAME/PEAK_Data/data.unity3d" ]; }
+since() { awk -v t="$START" -v p="AppID $APPID $1" 'index($0, p) && substr($0, 2, 19) >= t' "$STEAM_DIR/logs/content_log.txt" 2>/dev/null | tail -1; }
+# Steam downloads the Windows depot itself, as for any game it installs, so the converter never sees your login.
+# Likely limit (not seen yet): a game update resets the app info edits, Steam then drops the files, and each
+# update is a full download (about 1.6 GB).
+steam_install() {
+  START=$(date '+%Y-%m-%d %H:%M:%S') WAITED=0
+  pgrep -x steam_osx >/dev/null || open -a Steam
+  say "Steam is installing PEAK (about 1.6 GB; sign in to Steam if it asks). This window waits."
+  until [ -n "$(since 'finished update')" ] && installed; do
+    # after each try Steam logs "scheduler finished : removed from schedule (result No Error, state 0xc)"
+    R=$(since 'scheduler finished' | sed -n 's/.*(result \(.*\), state.*/\1/p')
+    [ -z "$R" ] || [ "$R" = "No Error" ] || die "Steam couldn't install PEAK: $R. Is PEAK on the Steam account that's signed in?"
+    # start it; again every 30 s until Steam is up and signed in and takes it
+    [ -n "$(since 'App update changed : Running')" ] || [ $((WAITED % 30)) -ne 0 ] || open "steam://validate/$APPID"
+    [ "$WAITED" -lt 3600 ] || die "Steam hasn't finished installing PEAK after an hour; check its Downloads page, then run this again"
     sleep 3; WAITED=$((WAITED + 3))
   done
-  DEPOT=$(printf '%s\n' "$DONE" | sed -n 's/.*complete : "\(.*\)" (manifest.*/\1/p' | tr '\\' /)  # Steam mixes in \ separators
-  case $DEPOT in /*) ;; *) DEPOT="$STEAM_APP/$DEPOT" ;; esac
-  MANIFEST=$(printf '%s\n' "$DONE" | sed -n 's/.*(manifest \([0-9]*\)).*/\1/p')
-  [ -f "$DEPOT/PEAK_Data/data.unity3d" ] || die "Steam said it finished, but there's no game in $DEPOT"
-  rm -rf "$PMC_CACHE/game.old"
-  if [ -d "$GAME" ]; then mv "$GAME" "$PMC_CACHE/game.old"; fi
-  mv "$DEPOT" "$GAME"
-  rmdir "$(dirname "$DEPOT")" 2>/dev/null || true  # Steam's now-empty app folder (inside its own app bundle)
-  rm -rf "$PMC_CACHE/game.old"
-  # The install record SteamCMD would write: it carries the build id, and steam_library.py registers from it
-  SIZE=$(find "$GAME" -type f -exec stat -f %z {} + | awk '{s += $1} END {printf "%.0f", s}')
-  OWNER=$(awk -F'"' '/^\t"7656119[0-9]+"/ {id = $2; if (!first) first = id} /"MostRecent"[[:space:]]+"1"/ {print id; found = 1; exit}
-    END {if (!found) print first}' "$STEAM_APP/config/loginusers.vdf" 2>/dev/null)
-  mkdir -p "$GAME/steamapps"
-  printf '"AppState"\n{\n\t"appid"\t\t"%s"\n\t"Universe"\t\t"1"\n\t"name"\t\t"PEAK"\n\t"StateFlags"\t\t"4"\n\t"installdir"\t\t"PEAK"\n\t"LastUpdated"\t\t"%s"\n\t"LastPlayed"\t\t"0"\n\t"SizeOnDisk"\t\t"%s"\n\t"StagingSize"\t\t"0"\n\t"buildid"\t\t"%s"\n\t"LastOwner"\t\t"%s"\n\t"DownloadType"\t\t"1"\n\t"UpdateResult"\t\t"0"\n\t"BytesToDownload"\t\t"0"\n\t"BytesDownloaded"\t\t"0"\n\t"BytesToStage"\t\t"0"\n\t"BytesStaged"\t\t"0"\n\t"TargetBuildID"\t\t"%s"\n\t"AutoUpdateBehavior"\t\t"0"\n\t"AllowOtherDownloadsWhileRunning"\t\t"0"\n\t"ScheduledAutoUpdate"\t\t"0"\n\t"InstalledDepots"\n\t{\n\t\t"%s"\n\t\t{\n\t\t\t"manifest"\t\t"%s"\n\t\t\t"size"\t\t"%s"\n\t\t}\n\t}\n\t"UserConfig"\n\t{\n\t}\n\t"MountedConfig"\n\t{\n\t}\n}\n' \
-    "$APPID" "$(date +%s)" "$SIZE" "$1" "${OWNER:-0}" "$1" "$DEPOT_ID" "$MANIFEST" "$SIZE" > "$GAME/$ACF_NAME"
 }
 if [ -z "$GAME" ]; then
-  need_steamcmd  # anonymous here: it only asks Steam for the current build id, no login
-  GAME="$PMC_CACHE/game"
-  LATEST=$(latest_build || true)
-  [ -n "$LATEST" ] || die "couldn't reach Steam to check for the current version of PEAK; try again in a minute"
-  # Already built from the current Steam build? Then nothing to download.
-  [ -z "$FORCE" ] && [ "$(xattr -p $STAMP_ATTR "$OUT_APP" 2>/dev/null)" = "game=steam-$LATEST converter=$CONV_ID" ] &&
-    up_to_date "build $LATEST"
-  if [ -n "$STEAM_USER" ]; then
-    # SteamCMD signing in as you replaces the Steam app's session ("Session Replaced"), and the app doesn't
-    # reconnect by itself, so games then can't reach Steam.
-    close_steam "SteamCMD signs in as you, which would sign the Steam app out"
-    say "Getting your Windows copy of PEAK (app $APPID) as $STEAM_USER; the first time, SteamCMD asks for your password / Steam Guard"
-    CHECK=validate  # check every file only on the first download; after that Steam sends just what changed
-    [ -f "$GAME/$ACF_NAME" ] && CHECK=
-    steamcmd +@sSteamCmdForcePlatformType windows +force_install_dir "$GAME" +login "$STEAM_USER" +app_update $APPID $CHECK +quit
-    [ -f "$GAME/$ACF_NAME" ] || die "SteamCMD didn't download PEAK (see its messages above)"
-  elif [ "$(sed -n 's/.*"buildid"[[:space:]]*"\([0-9]*\)".*/\1/p' "$GAME/$ACF_NAME" 2>/dev/null | head -1)" != "$LATEST" ] ||
-       [ ! -f "$GAME/PEAK_Data/data.unity3d" ]; then
-    steam_download "$LATEST"
-  fi
+  GAME=$STEAM_GAME STEAM_INSTALL=1
+  steam_entry die
+  installed || steam_install
 fi
-[ -n "$GAME" ] || die "pass --game <Windows install folder> or --steam-user <Steam login>"
 [ -d "$GAME" ] || die "no folder $GAME"
 GAME=$(cd "$GAME" && pwd)
 [ -f "$GAME/PEAK_Data/data.unity3d" ] || die "no PEAK_Data/data.unity3d in $GAME"
@@ -211,7 +154,7 @@ UNITY=$(head -c 256 "$GAME/PEAK_Data/data.unity3d" | LC_ALL=C grep -a -o -m1 '[0
 [ "$UNITY" = "$UNITY_VERSION" ] || die "this game build uses Unity ${UNITY:-?}; the converter supports $UNITY_VERSION. Get a newer converter."
 
 # Up to date? The stamp names the game build (Steam build id, or a fingerprint of the files) and this converter.
-if [ -f "$GAME/$ACF_NAME" ]; then GAME_ID="steam-$(sed -n 's/.*"buildid"[[:space:]]*"\([0-9]*\)".*/\1/p' "$GAME/$ACF_NAME" | head -1)"
+if [ -n "$STEAM_INSTALL" ]; then GAME_ID="steam-$(acf buildid)"
 else GAME_ID="files-$(cd "$GAME" && find . -type f -print0 | sort -z | xargs -0 stat -f '%N %z %m' | shasum | cut -c1-16)"; fi
 STAMP="game=$GAME_ID converter=$CONV_ID"
 [ -z "$FORCE" ] && [ "$(xattr -p $STAMP_ATTR "$OUT_APP" 2>/dev/null)" = "$STAMP" ] && up_to_date "$GAME_ID"

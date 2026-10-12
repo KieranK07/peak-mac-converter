@@ -39,7 +39,8 @@ def main():
             (0, 'config', [(1, 'installdir', b'PEAK'), (0, 'launch', [
                 (0, '9', [(1, 'executable', b'PEAK.exe'), (0, 'config', [(1, 'oslist', b'linux'), (1, 'BetaKey', b'x')])]),
                 (0, '5', [(1, 'executable', b'PEAK.exe'), (0, 'config', [(1, 'oslist', b'windows'), (2, 'osarch', 64)])]),
-                (0, '6', [(1, 'executable', b'PEAK.exe'), (0, 'config', [(1, 'oslist', b'windows')])])])])])]
+                (0, '6', [(1, 'executable', b'PEAK.exe'), (0, 'config', [(1, 'oslist', b'windows')])])])]),
+            (0, 'depots', [(0, '3527291', [(0, 'config', [(1, 'oslist', b'windows')])])])])]
     other = [(0, 'appinfo', [(2, 'appid', 10), (0, 'common', [(1, 'oslist', b'windows')])])]
     with tempfile.TemporaryDirectory() as t:
         steam, app = os.path.join(t, 'Steam'), os.path.join(t, 'Apps/PEAK.app')
@@ -54,13 +55,8 @@ def main():
         open(os.path.join(cfg, 'localconfig.vdf'), 'w').write(LOCALCONFIG)
         lethal = {'appid': -5, 'AppName': 'Lethal Company', 'Exe': '"/x/Lethal Company"', 'sortas': ''}
         open(os.path.join(cfg, 'shortcuts.vdf'), 'wb').write(S.write_vdf({'shortcuts': {'0': lethal}}))
-        copied, cmd = os.path.join(t, 'copied'), os.path.join(t, 'steamcmd')
+        copied = os.path.join(t, 'copied')
         os.makedirs(copied)
-        os.makedirs(os.path.join(cmd, 'steamapps'))
-        open(os.path.join(cmd, 'steamapps/appmanifest_3527290.acf'), 'w').write(
-            '"AppState"\n{\n\t"appid"\t\t"3527290"\n\t"installdir"\t\t"PEAK"\n\t"buildid"\t\t"25739797"\n'
-            '\t"SizeOnDisk"\t\t"1930335969"\n\t"FullValidateAfterNextUpdate"\t\t"1"\n'
-            '\t"InstalledDepots"\n\t{\n\t\t"3527291"\n\t\t{\n\t\t\t"manifest"\t\t"7760699995234210393"\n\t\t}\n\t}\n}\n')
 
         # a copied install: a shortcut with PEAK's artwork; Lethal's shortcut is kept
         assert run(steam, '--check-play') == 1
@@ -78,13 +74,10 @@ def main():
         assert open(os.path.join(cfg, f'grid/{uid}_icon.jpg')).read() == 'f00d.jpg'
         assert open(os.path.join(steam, 'appcache/appinfo.vdf'), 'rb').read() == before
 
-        # the SteamCMD install: the real PEAK entry plays the app; the shortcut goes. An old-layout symlink to the
-        # game is replaced by the stub (Steam on macOS deletes the Windows depot's files through it)
-        os.makedirs(os.path.join(steam, 'steamapps/common'), exist_ok=True)
-        os.symlink(cmd, os.path.join(steam, 'steamapps/common/PEAK'))
-        assert run(steam, '--app', app, '--game', cmd, '--check') == 1
-        assert run(steam, '--app', app, '--game', cmd) == 0
-        assert run(steam, '--app', app, '--game', cmd, '--check') == 0
+        # Steam's own install: the real PEAK entry plays the app, Steam is asked to install it; the shortcut goes
+        assert run(steam, '--app', app, '--check') == 1
+        assert run(steam, '--app', app) == 0
+        assert run(steam, '--app', app, '--check') == 0
         assert run(steam, '--check-play') == 0
         b = open(os.path.join(steam, 'appcache/appinfo.vdf'), 'rb').read()
         n = 16 + 8 + struct.unpack_from('<I', before, 20)[0]  # the other app's entry is untouched
@@ -94,20 +87,20 @@ def main():
         launch = S.find(items, 'appinfo', 'config', 'launch')[1][2]
         assert S.find(items, 'appinfo', 'common', 'oslist')[1][2] == b'windows,macos'
         assert [S.find(e, 'config', 'oslist')[1][2] for _, _, e in launch] == [b'linux', b'windows,macos', b'windows']
-        stub = os.path.join(steam, 'steamapps/common/PEAK')
-        assert not os.path.islink(stub) and sorted(os.listdir(stub)) == ['.peak-mac-converter', 'PEAK.exe']
-        assert os.path.getsize(os.path.join(stub, 'PEAK.exe')) == 0 and os.path.isdir(os.path.join(cmd, 'steamapps'))
-        m = open(os.path.join(steam, 'steamapps/appmanifest_3527290.acf')).read()
-        assert '"FullValidateAfterNextUpdate"\t\t"0"' in m and '3527291' not in m and '"SizeOnDisk"\t\t"0"' in m, m
-        assert '"InstalledDepots"\n\t{\n\t}' in m, m
+        assert S.find(items, 'appinfo', 'depots', '3527291', 'config', 'oslist')[1][2] == b'windows,macos'
+        acf = os.path.join(steam, 'steamapps/appmanifest_3527290.acf')
+        assert S.parse(open(acf).read()) == [('AppState', [('appid', '3527290'), ('Universe', '1'), ('name', 'PEAK'),
+                                                           ('StateFlags', '1026'), ('installdir', 'PEAK')])]
         lc = open(os.path.join(cfg, 'localconfig.vdf')).read()
         assert f'"LaunchOptions"\t\t"\\"{app}/Contents/MacOS/PEAK\\" %command%"' in lc and '"Playtime"\t\t"168"' in lc
         s = S.read_vdf(open(os.path.join(cfg, 'shortcuts.vdf'), 'rb').read())['shortcuts']
         assert list(s.values()) == [lethal] and os.listdir(os.path.join(cfg, 'grid')) == []
-        # a game update changes the manifest: the entry must be refreshed
-        open(os.path.join(cmd, 'steamapps/appmanifest_3527290.acf'), 'a').write('\n')
-        assert run(steam, '--app', app, '--game', cmd, '--check') == 1
-        assert run(steam, '--app', app, '--game', cmd) == 0 and run(steam, '--app', app, '--game', cmd, '--check') == 0
+        # Steam's own install record is never rewritten
+        open(acf, 'w').write('"AppState"\n{\n\t"StateFlags"\t\t"4"\n}\n')
+        open(os.path.join(steam, 'appcache/appinfo.vdf'), 'wb').write(before)  # Steam replaced the app info
+        assert run(steam, '--check-play') == 1 and run(steam, '--app', app, '--check') == 1
+        assert run(steam, '--app', app) == 0 and run(steam, '--app', app, '--check') == 0
+        assert open(acf).read() == '"AppState"\n{\n\t"StateFlags"\t\t"4"\n}\n'
         assert not os.path.exists(os.path.join(steam, 'userdata/anonymous/config/shortcuts.vdf'))
     print('steam_library: all checks passed')
 
