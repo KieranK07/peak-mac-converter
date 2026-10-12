@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>disable</Nullable>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <!-- macOS: dotnet build (after ../build.sh; copies ../out/opus_egpv.dylib). Windows: dotnet build -r win-x64,
+         then put the game's opus_egpv.dll next to the exe. run-parity.sh does both. -->
+    <RuntimeIdentifier Condition="'$(RuntimeIdentifier)' == ''">osx-arm64</RuntimeIdentifier>
+  </PropertyGroup>
+  <ItemGroup>
+    <None Include="../out/opus_egpv.dylib" CopyToOutputDirectory="Always" Link="opus_egpv.dylib" Condition="'$(RuntimeIdentifier)' == 'osx-arm64'" />
+  </ItemGroup>
+</Project>

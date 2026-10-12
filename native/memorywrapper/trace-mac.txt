@@ -1,0 +1,222 @@
+== S1 normal
+UnityPluginLoad(UI) {
+  GetInterface(BAF9E57C61A811EC-C5A7CC7861A811EC) -> MM
+  CreateAllocator("PortningsbolagetMemory","PortningsbolagetMemory") -> A1
+}
+Init() {
+}
+GetAllocateFunctionPointer() {
+} -> F1
+GetReallocateFunctionPointer() {
+} -> F2
+GetReleaseFunctionPointer() {
+} -> F3
+GetAllocateFunctionPointer() {
+} -> F1
+GetReallocateFunctionPointer() {
+} -> F2
+GetReleaseFunctionPointer() {
+} -> F3
+alloc(0,1) {
+  Allocate(A1,0,1) -> P1
+} -> P1
+alloc(0,2) {
+  Allocate(A1,0,2) -> P2
+} -> P2
+alloc(0,8) {
+  Allocate(A1,0,8) -> P3
+} -> P3
+alloc(0,16) {
+  Allocate(A1,0,16) -> P4
+} -> P4
+alloc(0,64) {
+  Allocate(A1,0,64) -> P5
+} -> P5
+alloc(0,4096) {
+  Allocate(A1,0,4096) -> P6
+} -> P6
+alloc(1,1) {
+  Allocate(A1,1,1) -> P7
+} -> P7
+alloc(1,2) {
+  Allocate(A1,1,2) -> P8
+} -> P8
+alloc(1,8) {
+  Allocate(A1,1,8) -> P9
+} -> P9
+alloc(1,16) {
+  Allocate(A1,1,16) -> P10
+} -> P10
+alloc(1,64) {
+  Allocate(A1,1,64) -> P11
+} -> P11
+alloc(1,4096) {
+  Allocate(A1,1,4096) -> P12
+} -> P12
+alloc(7,1) {
+  Allocate(A1,7,1) -> P13
+} -> P13
+alloc(7,2) {
+  Allocate(A1,7,2) -> P14
+} -> P14
+alloc(7,8) {
+  Allocate(A1,7,8) -> P15
+} -> P15
+alloc(7,16) {
+  Allocate(A1,7,16) -> P16
+} -> P16
+alloc(7,64) {
+  Allocate(A1,7,64) -> P17
+} -> P17
+alloc(7,4096) {
+  Allocate(A1,7,4096) -> P18
+} -> P18
+alloc(16,1) {
+  Allocate(A1,16,1) -> P19
+} -> P19
+alloc(16,2) {
+  Allocate(A1,16,2) -> P20
+} -> P20
+alloc(16,8) {
+  Allocate(A1,16,8) -> P21
+} -> P21
+alloc(16,16) {
+  Allocate(A1,16,16) -> P22
+} -> P22
+alloc(16,64) {
+  Allocate(A1,16,64) -> P23
+} -> P23
+alloc(16,4096) {
+  Allocate(A1,16,4096) -> P24
+} -> P24
+alloc(4096,1) {
+  Allocate(A1,4096,1) -> P25
+} -> P25
+alloc(4096,2) {
+  Allocate(A1,4096,2) -> P26
+} -> P26
+alloc(4096,8) {
+  Allocate(A1,4096,8) -> P27
+} -> P27
+alloc(4096,16) {
+  Allocate(A1,4096,16) -> P28
+} -> P28
+alloc(4096,64) {
+  Allocate(A1,4096,64) -> P29
+} -> P29
+alloc(4096,4096) {
+  Allocate(A1,4096,4096) -> P30
+} -> P30
+alloc(1048576,1) {
+  Allocate(A1,1048576,1) -> P31
+} -> P31
+alloc(1048576,2) {
+  Allocate(A1,1048576,2) -> P32
+} -> P32
+alloc(1048576,8) {
+  Allocate(A1,1048576,8) -> P33
+} -> P33
+alloc(1048576,16) {
+  Allocate(A1,1048576,16) -> P34
+} -> P34
+alloc(1048576,64) {
+  Allocate(A1,1048576,64) -> P35
+} -> P35
+alloc(1048576,4096) {
+  Allocate(A1,1048576,4096) -> P36
+} -> P36
+realloc(null,64,16) {
+  Reallocate(A1,null,64,16) -> P37
+} -> P37
+realloc(P37,0,16) {
+  Reallocate(A1,P37,0,16) -> P38
+} -> P38
+realloc(P38,2097152,64) {
+  Reallocate(A1,P38,2097152,64) -> P39
+} -> P39
+release(null) {
+  Deallocate(A1,null)
+}
+release(P39) {
+  Deallocate(A1,P39)
+}
+UnityPluginUnload() {
+  DestroyAllocator(A1)
+}
+UnityPluginUnload() {
+}
+alloc(16,16) {
+  Allocate(null,16,16) -> P40
+} -> P40
+realloc(P40,32,16) {
+  Reallocate(null,P40,32,16) -> P41
+} -> P41
+release(P41) {
+  Deallocate(null,P41)
+}
+== S2 GetInterface returns null
+UnityPluginLoad(UI) {
+  GetInterface(BAF9E57C61A811EC-C5A7CC7861A811EC) -> null
+}
+Init() {
+}
+GetAllocateFunctionPointer() {
+} -> F1
+GetReallocateFunctionPointer() {
+} -> F2
+GetReleaseFunctionPointer() {
+} -> F3
+GetAllocateFunctionPointer() {
+} -> F1
+GetReallocateFunctionPointer() {
+} -> F2
+GetReleaseFunctionPointer() {
+} -> F3
+UnityPluginUnload() {
+}
+child: UnityPluginLoad(GetInterface -> null), alloc(16,16) -> process terminated
+== S3 CreateAllocator returns null
+UnityPluginLoad(UI) {
+  GetInterface(BAF9E57C61A811EC-C5A7CC7861A811EC) -> MM
+  CreateAllocator("PortningsbolagetMemory","PortningsbolagetMemory") -> null
+}
+alloc(32,16) {
+  Allocate(null,32,16) -> P1
+} -> P1
+realloc(P1,64,16) {
+  Reallocate(null,P1,64,16) -> P2
+} -> P2
+release(P2) {
+  Deallocate(null,P2)
+}
+UnityPluginUnload() {
+}
+== S4 UnityPluginLoad twice
+UnityPluginLoad(UI) {
+  GetInterface(BAF9E57C61A811EC-C5A7CC7861A811EC) -> MM
+  CreateAllocator("PortningsbolagetMemory","PortningsbolagetMemory") -> A1
+}
+UnityPluginLoad(UI) {
+  GetInterface(BAF9E57C61A811EC-C5A7CC7861A811EC) -> MM
+  CreateAllocator("PortningsbolagetMemory","PortningsbolagetMemory") -> A2
+}
+alloc(64,8) {
+  Allocate(A2,64,8) -> P1
+} -> P1
+release(P1) {
+  Deallocate(A2,P1)
+}
+UnityPluginUnload() {
+  DestroyAllocator(A2)
+}
+UnityPluginUnload() {
+}
+== S5 concurrency
+UnityPluginLoad(UI) {
+  GetInterface(BAF9E57C61A811EC-C5A7CC7861A811EC) -> MM
+  CreateAllocator("PortningsbolagetMemory","PortningsbolagetMemory") -> A1
+}
+threads 8 x 100000 ops: issued alloc=133288 realloc=400265 release=266525; forwarded alloc=133288 realloc=400265 release=266525; mismatches=0
+UnityPluginUnload() {
+  DestroyAllocator(A1)
+}
