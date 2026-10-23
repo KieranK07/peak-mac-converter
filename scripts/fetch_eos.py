@@ -28,7 +28,7 @@ DYLIB = 'package/Runtime/macOS/libEOSSDK-Mac-Shipping.dylib'
 DYLIB_SHA256 = '51b644a123d9446e1f6e7098d264f57d09826d47e1b5bbcdd1d8172a3e208f9d'
 # = the plugin's package/Runtime/Windows/x64/EOSSDK-Win64-Shipping.dll (checked 2026-10-07)
 GAME_SHA256 = {'Plugins/x86_64/EOSSDK-Win64-Shipping.dll': '9c498fe31c8df1d9085dfa9c71c6d50ec6b569acdb29f1decb97be105b6341dc',
-               'Managed/EpicOnlineService.dll': 'bed68d1a33bd4b204d9c9aea9a3136d65376ce873c67fad9eb750c30697def07'}
+               'Managed/EpicOnlineService.dll': '83dd757b4ce1b224a67afedcc6047e8d43ef15554927af6a282825b7c7839695'}
 OUT_NAME = 'libEOSSDK-Win64-Shipping.dylib'
 
 

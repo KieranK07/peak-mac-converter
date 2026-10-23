@@ -179,7 +179,7 @@ switch (cmd)
         break;
     case "metalcheck": // <source bundle> <metalized bundle> [msl dir]
         return MetalCheck.Run(args[1], args[2], args.Length > 3 ? args[3] : null);
-    case "metalize": // <game Data dir or data.unity3d> <out bundle (or out dir for loose files)> [cache dir]
+    case "metalize": // <game Data dir, or a bundle> <out dir (or out bundle)> [cache dir]
         return Metalize.Run(args[1], args[2], args.Length > 3 ? args[3] : null);
     case "info":
     {

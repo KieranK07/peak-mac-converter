@@ -6,8 +6,9 @@ namespace Lmc;
 record ShaderRef(string File, long PathId, string Name, List<int> Platforms);
 
 // The serialized files of a player build, loaded with AssetsTools.NET and a class database (player builds carry no
-// type trees). Source: a Data folder of loose files, or a UnityFS bundle (PEAK packs everything into
-// Data/data.unity3d; pass the bundle or the folder holding it). Scene files (levelN) are skipped unless levels=true.
+// type trees). Source: a Data folder of loose files (PEAK since build 26155610), or a UnityFS bundle (a map bundle in
+// StreamingAssets/maps, or the older builds' Data/data.unity3d; pass the bundle or the folder holding it). Scenes
+// (levelN, a map bundle's BuildPlayer-Level_N) are skipped unless levels=true; their .sharedAssets hold the assets.
 sealed class DataDir : IDisposable
 {
     public readonly AssetsManager Am = new();
@@ -23,7 +24,7 @@ sealed class DataDir : IDisposable
         if (File.Exists(path))
         {
             Bundle = new Bundle(path);
-            foreach (var n in Bundle.Nodes.Where(n => (n.Flags & 4) != 0 && IsSerialized(n.Path) && (levels || !Path.GetFileName(n.Path).StartsWith("level"))))
+            foreach (var n in Bundle.Nodes.Where(n => (n.Flags & 4) != 0 && (levels || !IsScene(Path.GetFileName(n.Path)))))
             {
                 var key = Path.GetFileName(n.Path);
                 NodePath[key] = n.Path;
@@ -32,7 +33,7 @@ sealed class DataDir : IDisposable
         }
         else
             foreach (var p in Directory.EnumerateFiles(path).Concat(Directory.EnumerateFiles(Path.Combine(path, "Resources")).Where(p => Path.GetFileName(p) == "unity_builtin_extra")))
-                if (IsSerialized(p) && (levels || !Path.GetFileName(p).StartsWith("level"))) Load(Path.GetFileName(p), File.ReadAllBytes(p));
+                if (IsSerialized(p) && (levels || !IsScene(Path.GetFileName(p)))) Load(Path.GetFileName(p), File.ReadAllBytes(p));
     }
 
     void Load(string key, byte[] bytes)
@@ -53,6 +54,8 @@ sealed class DataDir : IDisposable
             return inst.file.Reader.ReadBytes((int)info.ByteSize);
         }
     }
+
+    static bool IsScene(string name) => name.StartsWith("level") || (name.StartsWith("BuildPlayer-") && !name.Contains('.'));
 
     // Unity serialized files have no extension (levelN, globalgamemanagers) or end in .assets
     static bool IsSerialized(string path)

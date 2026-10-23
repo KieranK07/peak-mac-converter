@@ -14,10 +14,11 @@ import argparse, hashlib, os, sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import common as C
 
-SHA256_IN = '725e3dd979c725cd26b00ed6d2762de091bf8a797f5e98ca8d7cb481edf868e6'  # build 25739797
+SHA256_IN = 'cf0f239207673d9749bb67005bfb7cf400c5be58e70c371bdc0841f8bafd85b3'  # build 26155610 (crossplay)
 # the OSX case's ldc.i4.2 (0x18) becomes ldc.i4.1 (0x17); the input and output hashes pin everything else
-OFFSET, OLD, NEW = 0x893, '18', '17'
-SHA256_OUT = 'af18497e27f3340cbabb27750bdd80884dbc8a119453c162f921857b17541ee6'
+# (build 25739797: 0x893; the crossplay build added fields, so the method moved but its IL is unchanged)
+OFFSET, OLD, NEW = 0x8e3, '18', '17'
+SHA256_OUT = '01007c662eb58b941fac5d1d53718386f5f361a2e477d6a24fd629301a955890'
 
 
 def main():

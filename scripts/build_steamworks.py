@@ -40,7 +40,7 @@ RELEASE = ('https://github.com/rlabrecque/Steamworks.NET/releases/download/2025.
 DYLIB_GUID = '804ae5441da39374086dbff7d4955f60'  # .../Plugins/steam_api.bundle/Contents/MacOS/libsteam_api.dylib
 DYLIB_SHA256 = 'b2260d2b2ff6ac8d2d10770047967ceb18022fc5c27f94e3246bd7d2a1da82c0'
 NAME = 'com.rlabrecque.steamworks.net'
-GAME_SHA256 = {f'Managed/{NAME}.dll': '29b3ee80d218c0e3dfb1696336d2def4d219e2a8aca49088d9265dc946751730',
+GAME_SHA256 = {f'Managed/{NAME}.dll': '17afda90ce1056dae23633edfdd4fd8c6920e65d011881adc4cab7b6a42c8e85',
                'Plugins/x86_64/steam_api64.dll': '670d654aa3255c5061cf0236a1cdbb2f5076cbd5ae44f613b6f4921558e83e2d'}
 OUT_SHA256 = {'osx': '9ca8735065de971e7890ea54edc5102cad86d399dbdc97761b43de6f59661678',
               'win': 'ba694f5704f013cbe81774d6a018b0d4a34194c02c717a8e2a3b2784633a8452'}

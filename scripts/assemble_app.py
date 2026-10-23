@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """assemble_app.py: build PEAK.app (native Apple Silicon) from Unity's Mac player, the user's game and our pieces.
 
-    python3 -I scripts/assemble_app.py --game <Windows game dir> --data <patched data.unity3d> --out <dir>/PEAK.app \
+    python3 -I scripts/assemble_app.py --game <Windows game dir> --data <patched Data dir> --out <dir>/PEAK.app \
         [--unity-pkg-cache <dir>] [--allow-unpatched-data]
 
 Builds <dir>/PEAK.updating.app, checks it, signs it ad hoc and only then swaps it in for <dir>/PEAK.app.
@@ -16,12 +16,13 @@ Sources (docs/APP-LAYOUT.md has the file-by-file mapping and the evidence):
   * Ours, built here by the other converter scripts (they pin their own outputs): build_inputsystem.py,
     build_steamworks.py, fetch_eos.py, patch_platforms.py, native/opus/build.sh, native/memorywrapper/build.sh,
     native/micwatchdog/build_micwatchdog.py (MacMicWatchdog.dll, registered in the two Unity JSON files).
-  * --data: the shader/graphics-patched data.unity3d (the game's own is D3D-only; --allow-unpatched-data uses it
+  * --data: the folder `lmc metalize` writes: the game's serialized files and map bundles (StreamingAssets/maps)
+    with Metal shaders, laid over the game's Data (the game's own are D3D-only; --allow-unpatched-data uses them
     anyway, for a dry assembly).
 No steam_appid.txt: like the Lethal converter, Steam launches the app as the real game (app 3527290) and checks
 ownership; SteamAPI.RestartAppIfNecessary sends a direct launch back through Steam. stdlib only.
 """
-import argparse, filecmp, hashlib, json, os, plistlib, re, shutil, struct, subprocess, sys, tempfile
+import argparse, hashlib, json, os, plistlib, re, shutil, struct, subprocess, sys, tempfile
 import urllib.request, zlib
 import xml.etree.ElementTree as ET
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -57,14 +58,14 @@ PLUGINS = {'libsteam_api.dylib': build_steamworks.DYLIB_SHA256, fetch_eos.OUT_NA
            'opus_egpv.dylib': None, 'MemoryWrapper-x64-Release.dylib': None}  # None: built here, not pinned
 COPYRIGHT = '(c) 2005-2026 Unity Technologies. All rights reserved.'  # the game's UnityPlayer.dll LegalCopyright
 MIC_TEXT = 'PEAK uses the microphone for voice chat.'
-# MacMicWatchdog registration: the game's two Unity JSON files (build 25739797) before and after our one entry each
+# MacMicWatchdog registration: the game's two Unity JSON files (build 26155610) before and after our one entry each
 WATCHDOG = build_micwatchdog.NAME
 WATCHDOG_RIOL = {'assemblyName': WATCHDOG, 'nameSpace': '', 'className': WATCHDOG, 'methodName': 'Init',
                  'loadTypes': 0, 'isUnityClass': False}  # 0 = RuntimeInitializeLoadType.AfterSceneLoad
 JSON_PINS = {'ScriptingAssemblies.json': ('7cd8e8043949a2380c5de76c94f181c95c386d9b44231f0f3d8fdc22680ab332',
                                           'd958df69aa4a1fa7abe4302d846d8cd3b03adc68e60670250209d2ae5619aaf8'),
-             'RuntimeInitializeOnLoads.json': ('953a59fd7feda9014df16100737cecc52d6e01c1b129e1de81b2749f2d2b18c4',
-                                               'f53e109a039494f8d01af4e50df1e0b8903267713f437fab6b11e2fa58d57f0f')}
+             'RuntimeInitializeOnLoads.json': ('65a18c2caf4b975a420bc911195d8453562d8bef8133ab95b84c4d61146a15ea',
+                                               '7eb804ca80e65f9859952c8133e103fa0ec565337db86a3bf7414b6bae2a7d79')}
 
 
 die = C.die
@@ -322,9 +323,9 @@ def macho(path):
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split('\n')[0])
     ap.add_argument('--game', required=True, help='Windows game dir (contains PEAK_Data)')
-    ap.add_argument('--data', help='the shader/graphics-patched data.unity3d')
+    ap.add_argument('--data', help='the shader/graphics-patched Data dir written by lmc metalize')
     ap.add_argument('--allow-unpatched-data', action='store_true',
-                    help='without --data, use the game\'s D3D-only data.unity3d (dry assembly; renders nothing on Metal)')
+                    help='without --data, use the game\'s D3D-only data (dry assembly; renders nothing on Metal)')
     ap.add_argument('--unity-pkg-cache', default=C.CACHE, help='holds unity-<hash>/{support,editor}; may already be filled')
     ap.add_argument('--out', required=True, help='output .app (built as <name>.updating.app, then swapped in)')
     a = ap.parse_args()
@@ -333,14 +334,11 @@ def main():
         die('--out must end in .app')
     gdata = C.game_data(a.game)
     company, product = open(os.path.join(gdata, 'app.info')).read().splitlines()[:2]
-    gdu = os.path.join(gdata, 'data.unity3d')
     if a.data:
-        if open(a.data, 'rb').read(8) != b'UnityFS\0':
-            die(f'--data {a.data}: not a UnityFS bundle')
-        if filecmp.cmp(a.data, gdu, shallow=False):
-            die(f'--data {a.data} is the game\'s own (unpatched) data.unity3d')
+        if not os.path.isfile(os.path.join(a.data, 'globalgamemanagers')):
+            die(f'--data {a.data}: no globalgamemanagers (not a folder written by lmc metalize)')
     elif not a.allow_unpatched_data:
-        die('--data <patched data.unity3d> is required (or --allow-unpatched-data for a dry assembly)')
+        die('--data <patched Data dir> is required (or --allow-unpatched-data for a dry assembly)')
     support, bcl = unity_files(a.unity_pkg_cache)
     player = os.path.join(support, PLAYER)
 
@@ -356,8 +354,9 @@ def main():
         # Data: the game's, minus its Windows native plugins (the Mac ones go to Contents/PlugIns)
         C.clone(gdata, D)
         shutil.rmtree(os.path.join(D, 'Plugins'))
-        if a.data:
-            C.clone(a.data, os.path.join(D, 'data.unity3d'))
+        for dp, _, fn in (os.walk(a.data) if a.data else ()):
+            for f in fn:
+                C.clone(os.path.join(dp, f), os.path.join(D, os.path.relpath(os.path.join(dp, f), a.data)))
         # Unity's Mac player on top: MacOS/UnityPlayer (renamed), Frameworks/*.dylib and, new in 6.3,
         # Resources/Data/Resources/unity default resources, which replaces the game's Windows one
         for dp, _, fn in os.walk(player):
@@ -438,7 +437,7 @@ def main():
             shutil.rmtree(old)
         else:
             os.rename(stage, out)
-    print(f'built {out}' + ('' if a.data else ' (UNPATCHED data.unity3d: dry assembly, will not render on Metal)'))
+    print(f'built {out}' + ('' if a.data else ' (UNPATCHED data: dry assembly, will not render on Metal)'))
 
 
 if __name__ == '__main__':

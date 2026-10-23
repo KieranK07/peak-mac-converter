@@ -30,10 +30,12 @@ VERSION = '1.19.0'
 PACKAGE = (f'https://download.packages.unity.com/com.unity.inputsystem/-/com.unity.inputsystem-{VERSION}.tgz',
            '4a08d3d4ad260da37a0dd76c4575bb860a1d85fe305cf76b7c1a0de70496389c')
 PKG_DIR = 'com.unity.inputsystem@21a28c3a6c83'  # Unity 6 PackageCache name: first 12 hex of the tarball's sha1
-GAME_SHA256 = '61f106dd0dd968db2c62996a82d2a8a751db1e868f48062e69c03d37c6c18fc9'  # build 25739797's DLL
+GAME_SHA256 = 'acfe2788d3f891022178c0ee1bf4d307473a99079925b3cbb2418dde8e615850'  # build 26155610 (IL-identical to 25739797's)
 # The build is deterministic (same bytes from any cache path). Pinned after the il_diff proof above.
-OUT_SHA256 = {'osx': 'e1a9056cb75d1ca65f1a9953ec6985b29ea837a50c26d96b975173f747c13a2c',
-              'win': '3430bccb439dc12499f196aae519d97f7a5ecf6f5264b97289b8c5c47ad7e392'}
+# Build 26155610 rebuilt the game's UnityEngine modules (our references), so both pins moved: the win build is now
+# byte-identical to the shipped DLL, and the osx build is IL-identical to the one pinned for build 25739797 (e1a9056c).
+OUT_SHA256 = {'osx': '53aa06b749824d23fb5ad189a8b3db2a3c25948ff481e4fb7afecd0d24c06c4d',
+              'win': 'acfe2788d3f891022178c0ee1bf4d307473a99079925b3cbb2418dde8e615850'}
 GAME_PACKAGES = {'com.unity.ugui': '2.0.0'}  # no xr.oculus / xr.googlevr / xr.openvr / xr.windowsmr in PEAK
 
 

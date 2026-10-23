@@ -8,7 +8,7 @@ The compiler is Roslyn 4.3.1, the one Unity 6000.3.15f1 uses, with Unity's playe
 (scripts/common.py). It is pinned and sha256-checked like build_inputsystem.py. References:
   * netstandard 2.1 ref
   * the official 6000.3.15f1 macOS UnityEngine.CoreModule/AudioModule (support pkg Variations/mono/Managed)
-  * the game's PhotonVoice.dll and PhotonVoice.API.dll (pinned to build 25739797)
+  * the game's PhotonVoice.dll and PhotonVoice.API.dll (pinned to build 26155610; IL-identical to 25739797's)
 The build is deterministic (-deterministic, -pathmap), so the bytes are pinned.
 Why it exists: native/micwatchdog/MacMicWatchdog.cs. Needs `dotnet` (any .NET 6+ runtime). stdlib only.
 """
@@ -19,10 +19,10 @@ import common as C
 
 NAME = 'MacMicWatchdog'
 SRC = os.path.join(HERE, NAME + '.cs')
-GAME_REFS = {'PhotonVoice.dll': 'b6d7c15795fe6d3d2aa60ac528fcccde93e0ca4dbb66d3229125a7b3313be904',
-             'PhotonVoice.API.dll': '973958281622b77d5946499ff6634dadae10d53f643a18cca03ceea698b0f49d'}
+GAME_REFS = {'PhotonVoice.dll': 'e893d7bbed2524d44b09d5c73bdfb5940ab951ba529bebd9d96429c8a34a45be',
+             'PhotonVoice.API.dll': '50f82b46dfdf3a81c6278c4755da94ddb95a4d7656b4527509c4d51aef748ba0'}
 MAC_REFS = ('UnityEngine.CoreModule.dll', 'UnityEngine.AudioModule.dll')
-OUT_SHA256 = '7497020b11429cf6bc2f143c474ee71d9e77091f55c531c91c3cc0135e083eed'
+OUT_SHA256 = '293a0c641ef8732488db88c5fbf5a0f7d9c947482a53883f6030d7ae02ee54c0'  # build 26155610 refs; IL-identical to 7497020b
 
 
 def build(game, modules, out_dir):

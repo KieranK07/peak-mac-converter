@@ -8,15 +8,15 @@ Not affiliated with Landfall or Aggro Crab.
 
 ## Setup
 
-1. Get an Apple Silicon Mac with about 8 GB free, Steam signed in, and Xcode Command Line Tools:
+1. Get an Apple Silicon Mac with about 35 GB free, Steam signed in, and Xcode Command Line Tools:
    `xcode-select --install`
 2. Double click `Convert PEAK.command`. If macOS blocks it, right click it and hit Open.
 3. Type `yes` for Unity's terms. Steam closes for a second, then installs PEAK like any other game. It uses your
    normal Steam login, so nothing asks for your password.
-4. Wait about 15 min plus the download.
+4. Wait about 50 min plus the download (about 16 GB).
 5. Hit Play on PEAK in Steam.
 
-When PEAK updates, run it again.
+When PEAK updates, its Play button disappears from Steam until you run it again (a daily check tells you).
 
 ## Known issues
 
@@ -24,7 +24,7 @@ When PEAK updates, run it again.
 - Steam Cloud saves don't sync
 - Mouse sensitivity might feel a little off
 - macOS asks for mic access again after each rebuild
-- Game updates might download the whole game again (1.6 GB)
+- Every update rewrites the 14 GB of map files, so it takes about 40 min even when little changed
 
 ## How it works
 

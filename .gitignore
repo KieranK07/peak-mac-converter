@@ -22,6 +22,7 @@ __pycache__/
 *.exe
 out/
 *.unity3d
+*.assetbundle
 *.pkg
 *.tgz
 *.unitypackage

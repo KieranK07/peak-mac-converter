@@ -7,8 +7,9 @@
 #   options: --out "<path>.app" (default ~/Applications/PEAK.app), --no-steam-entry (with --game),
 #            --force (rebuild even if the app is up to date), --no-update-check
 #
-# Updating: run it again after PEAK updates. Steam gets the new build, and the app is rebuilt only when
-# the game or this converter changed; otherwise it says the app is up to date. Saves and settings live outside the
+# Updating: run it again after PEAK updates. A PEAK update resets Steam's app info, so Play disappears until you do
+# (the daily check says so). Steam gets the new build, and the app is rebuilt only when the game or this converter
+# changed; otherwise it says the app is up to date. Saves and settings live outside the
 # app (~/Library/Application Support/com.LandCrab.PEAK, ~/Library/Preferences/com.LandCrab.PEAK.plist).
 #
 # Nothing from the game, Unity or Valve is in this repository. Everything is downloaded from its official source
@@ -123,15 +124,15 @@ up_to_date() {
 }
 STEAM_GAME="$STEAM_DIR/steamapps/common/PEAK" ACF="$STEAM_DIR/steamapps/appmanifest_$APPID.acf"
 acf() { sed -n 's/.*"'"$1"'"[[:space:]]*"\([0-9]*\)".*/\1/p' "$ACF" 2>/dev/null | head -1; }
-installed() { [ "$(acf StateFlags)" = 4 ] && grep -q "\"$DEPOT_ID\"" "$ACF" && [ -f "$STEAM_GAME/PEAK_Data/data.unity3d" ]; }
+installed() { [ "$(acf StateFlags)" = 4 ] && grep -q "\"$DEPOT_ID\"" "$ACF" && [ -f "$STEAM_GAME/PEAK_Data/globalgamemanagers" ]; }
 since() { awk -v t="$START" -v p="AppID $APPID $1" 'index($0, p) && substr($0, 2, 19) >= t' "$STEAM_DIR/logs/content_log.txt" 2>/dev/null | tail -1; }
 # Steam downloads the Windows depot itself, as for any game it installs, so the converter never sees your login.
-# Likely limit (not seen yet): a game update resets the app info edits, Steam then drops the files, and each
-# update is a full download (about 1.6 GB).
+# A game update resets the app info edits (content_log: "removed depots"); steam_entry puts them back and Steam then
+# updates the files it already has (build 26155610: 11.4 GB of 16 GB downloaded).
 steam_install() {
   START=$(date '+%Y-%m-%d %H:%M:%S') WAITED=0
   pgrep -x steam_osx >/dev/null || open -a Steam
-  say "Steam is installing PEAK (about 1.6 GB; sign in to Steam if it asks). This window waits."
+  say "Steam is installing PEAK (about 16 GB; sign in to Steam if it asks). This window waits."
   until [ -n "$(since 'finished update')" ] && installed; do
     # after each try Steam logs "scheduler finished : removed from schedule (result No Error, state 0xc)"
     R=$(since 'scheduler finished' | sed -n 's/.*(result \(.*\), state.*/\1/p')
@@ -149,8 +150,9 @@ if [ -z "$GAME" ]; then
 fi
 [ -d "$GAME" ] || die "no folder $GAME"
 GAME=$(cd "$GAME" && pwd)
-[ -f "$GAME/PEAK_Data/data.unity3d" ] || die "no PEAK_Data/data.unity3d in $GAME"
-UNITY=$(head -c 256 "$GAME/PEAK_Data/data.unity3d" | LC_ALL=C grep -a -o -m1 '[0-9]\{4\}\.[0-9]*\.[0-9]*f[0-9]*' || true)
+# Build 26155610 (crossplay) dropped data.unity3d for loose files plus 14 GB of map bundles in StreamingAssets/maps
+[ -f "$GAME/PEAK_Data/globalgamemanagers" ] || die "no PEAK_Data/globalgamemanagers in $GAME (PEAK older than build 26155610? update it in Steam)"
+UNITY=$(head -c 256 "$GAME/PEAK_Data/globalgamemanagers" | LC_ALL=C grep -a -o -m1 '[0-9]\{4\}\.[0-9]*\.[0-9]*f[0-9]*' || true)
 [ "$UNITY" = "$UNITY_VERSION" ] || die "this game build uses Unity ${UNITY:-?}; the converter supports $UNITY_VERSION. Get a newer converter."
 
 # Up to date? The stamp names the game build (Steam build id, or a fingerprint of the files) and this converter.
@@ -180,10 +182,14 @@ if [ "$(shasum -a 256 "$LMC_TPK" 2>/dev/null | cut -c1-64)" != 642a151952e78aeec
   rm "$PMC_CACHE/unitypy-lzma.tpk"
   echo "642a151952e78aeec48f564ea5223f67ccf7819ec1aa6f5af3d9a0b42cf885af  $LMC_TPK" | shasum -a 256 -c - >/dev/null || die "classdata.tpk is not the verified one"
 fi
-say "Translating shaders (about 3 min; afterwards only new or changed shaders are translated again)"
-DATA="$PMC_CACHE/data.unity3d"
-rm -f "$DATA"
-dotnet "$TOOLS/lmc/lmc.dll" metalize "$GAME/PEAK_Data" "$DATA" "$PMC_CACHE/metal-cache"
+DATA="$PMC_CACHE/data"
+# A run that stopped later (say, in assembly) keeps this stage's 14 GB output; reuse it for the same game and tools
+if [ "$(cat "$DATA.from" 2>/dev/null)" != "$GAME_ID $ID" ]; then
+  say "Translating shaders and rewriting the map bundles (about 40 min; afterwards only new or changed shaders are translated)"
+  rm -rf "$DATA" "$DATA.from"
+  dotnet "$TOOLS/lmc/lmc.dll" metalize "$GAME/PEAK_Data" "$DATA" "$PMC_CACHE/metal-cache"
+  echo "$GAME_ID $ID" > "$DATA.from"
+fi
 
 # --- 4. assemble and sign the app ----------------------------------------------------------------------
 # assemble_app.py builds PEAK.updating.app next to the old app, checks and signs it, then swaps it in, so a failed
@@ -191,7 +197,7 @@ dotnet "$TOOLS/lmc/lmc.dll" metalize "$GAME/PEAK_Data" "$DATA" "$PMC_CACHE/metal
 say "Assembling $OUT_APP (the first time it streams about 1.8 GB of Unity's installers and keeps 94 MB)"
 mkdir -p "$(dirname "$OUT_APP")"
 python3 -I "$HERE/scripts/assemble_app.py" --game "$GAME" --data "$DATA" --out "$OUT_APP"
-rm -f "$DATA"  # the app holds an APFS clone of it
+rm -rf "$DATA" "$DATA.from"  # the app holds APFS clones of its files
 xattr -w $STAMP_ATTR "$STAMP" "$OUT_APP"
 
 # --- 5. Steam library entry and daily update check -----------------------------------------------------

@@ -6,6 +6,18 @@ assembly with `--allow-unpatched-data` came first and produced the same paths (2
 files were matched after `codesign --remove-signature`, because the final `codesign --deep` re-signs them.
 Base: the Lethal converter's `assemble_app.py` and `docs/APP-LAYOUT.md`.
 
+**Build 26155610 (crossplay, 2026-10-23) changed the data layout.** The tables below describe build 25739797; what
+moved:
+- No `data.unity3d`. Data is loose serialized files (`globalgamemanagers(.assets)`, `resources.assets`,
+  `sharedassets0-4.assets`, `level0-4`, their `.resS`), plus 7 map bundles in `StreamingAssets/maps`
+  (`levels0-31.assetbundle` … `levels192-207.assetbundle`, 13 GB, 208 baked levels, each with its own D3D shaders).
+- `--data` is now the folder `lmc metalize` writes. Its files are cloned over the game's Data: rewritten loose files
+  (Metal shaders, platform 2, Metal API list) and the 7 rewritten bundles (MetalCheck PASS each). Loose `levelN` files
+  are not rewritten and keep platform 19, as in the Lethal converter; the player loads them.
+- App: 308 files, 15 GB. Game DLLs were all rebuilt; every pinned one is IL-identical to 25739797's except
+  `Platforms.dll` (crossplay code added; the patched `InitializePlatform` is unchanged and moved to file offset 0x8e3).
+  `RuntimeInitializeOnLoads.json` gained one game entry (`PlatformBootstrap`).
+
 Sources:
 - **Support pkg:** `UnitySetup-Mac-Mono-Support-for-Editor-6000.3.15f1.pkg`, 724,929,213 B, sha256 `4606aadb…7e1b`.
   It is read once as an HTTP Range stream and the whole pkg's sha256 is checked. 108 files are kept, ~46 MB.
@@ -26,7 +38,7 @@ support tree also equals `runtime/6000.3.15f1/` (`MANIFEST.sha256`).
 | Unity editor pkg | 30 | Mono class libraries from `unityjit-macos/` (27, plus 3 from `Facades/`) |
 | User's Windows game | 121 | 5 `.resource`, `app.info`, `boot.config`, `ScriptingAssemblies.json`, `RuntimeInitializeOnLoads.json`, 2 `StreamingAssets` files, 110 Managed DLLs |
 | Ours | 8 | 4 Managed DLLs and 4 PlugIns dylibs, built by the scripts on each run |
-| Patched data (`--data`) | 1 | `data.unity3d` from the shader/graphics stage |
+| Patched data (`--data`) | 1 | `data.unity3d` from the shader/graphics stage (since 26155610: loose files + 7 map bundles) |
 | Generated | 4 | `Info.plist`, `DefaultPreferences.plist`, `PlayerIcon.icns`, `_CodeSignature/CodeResources` |
 
 `--data <patched data.unity3d>` replaces the game's `data.unity3d`. Nothing else in Data changes.

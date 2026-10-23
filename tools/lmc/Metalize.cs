@@ -7,19 +7,35 @@ namespace Lmc;
 
 // The shader stage of the converter: writes the game's serialized files with the platform set to macOS, each
 // Shader/ComputeShader replaced by its Metal translation, and the graphics settings the player reads to pick Metal.
-// Input: a UnityFS bundle (PEAK's Data/data.unity3d, or the folder holding it) -> output: a patched bundle at `outPath`
-// (never in place), then MetalCheck proves it. A Data folder of loose files -> loose files under `outPath` (Lethal).
+// Input: a UnityFS bundle -> output: a patched bundle at `outPath` (never in place), then MetalCheck proves it.
+// A Data folder of loose files -> loose files under `outPath`, then each map bundle in its StreamingAssets/maps (PEAK
+// since build 26155610) -> the same path under `outPath`. Older PEAK builds packed everything into Data/data.unity3d.
 // With a cache dir, each translated object is kept under a hash of the game's original object and of this
 // tool's binaries, so a re-run (or a game update) only translates shaders that are new or changed.
 static class Metalize
 {
     public static int Run(string gameData, string outPath, string? cacheDir = null)
     {
+        var only = Environment.GetEnvironmentVariable("LMC_ONLY")?.Split('|'); // dev: translate just these names
+        var cache = cacheDir == null || Mark.Any ? null : new ObjectCache(cacheDir);
+        var maps = Path.Combine(gameData, "StreamingAssets", "maps");
+        var jobs = new List<(string In, string Out)> { (gameData, outPath) };
+        if (Directory.Exists(maps))
+            jobs.AddRange(Directory.GetFiles(maps, "*.assetbundle").Order().Select(b => (b, Path.Combine(outPath, "StreamingAssets", "maps", Path.GetFileName(b)))));
+        foreach (var (i, o) in jobs)
+        {
+            var rc = One(i, o, cache, only);
+            if (rc != 0) return rc;
+        }
+        if (cache != null && only == null) cache.Prune();  // keep just this game version's set
+        return 0;
+    }
+
+    static int One(string gameData, string outPath, ObjectCache? cache, string[]? only)
+    {
         var problems = new List<string>();
         var sw = Stopwatch.StartNew();
         int shaders = 0, computes = 0;
-        var only = Environment.GetEnvironmentVariable("LMC_ONLY")?.Split('|'); // dev: translate just these names
-        var cache = cacheDir == null || Mark.Any ? null : new ObjectCache(cacheDir);
         string? bundleIn = null;
         using (var d = new DataDir(gameData))
         {
@@ -62,10 +78,9 @@ static class Metalize
                 if (repl.Count > 0) Console.WriteLine($"{key}: {repl.Count} objects replaced ({sw.Elapsed.TotalSeconds:F0}s)");
             }
             if (Mark.Any) Console.WriteLine($"LMC_MARK: {Mark.Applied} fragment programs marked");
-            Console.WriteLine($"{shaders} shaders and {computes} compute shaders done ({(cache == null ? "no cache" : $"{cache.Hits} reused, {cache.Misses} translated")}), {problems.Count} problems, {sw.Elapsed.TotalSeconds:F0}s");
+            Console.WriteLine($"{Path.GetFileName(gameData)}: {shaders} shaders and {computes} compute shaders done ({(cache == null ? "no cache" : $"{cache.Hits} reused, {cache.Misses} translated")}), {problems.Count} problems, {sw.Elapsed.TotalSeconds:F0}s");
             foreach (var p in problems) Console.WriteLine("  " + p);
             if (problems.Count > 0) return 1;
-            if (cache != null && only == null) cache.Prune();  // keep just this game version's set
             if (d.Bundle != null)
             {
                 // every other serialized file (scenes included) only changes its target platform: patch the 4 bytes
@@ -79,6 +94,7 @@ static class Metalize
                     patch[n.Path] = (at, BitConverter.GetBytes(SerializedWriter.StandaloneOSX));
                 }
                 if (Path.GetFullPath(outPath) == Path.GetFullPath(d.Bundle.FilePath)) throw new Exception("refusing to write the bundle in place");
+                Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(outPath))!);
                 d.Bundle.Write(outPath, nodeRepl, patch: patch);
                 bundleIn = d.Bundle.FilePath;
                 Console.WriteLine($"wrote {outPath}: {nodeRepl.Count} files rewritten, {patch.Count} platform-patched ({sw.Elapsed.TotalSeconds:F0}s)");
